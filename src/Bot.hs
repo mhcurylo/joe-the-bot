@@ -11,10 +11,12 @@ import Control.Monad (liftM)
 import Control.Monad.IO.Class (liftIO)
 
 bot :: Bot
-bot = randomBot
+bot = myBot
 
 myBot :: Bot
-myBot = error "it's up to you :)"
+myBot state = do
+  liftIO $ putStrLn $ show (stateHero state)
+  return Stay
 
 randomBot :: Bot
 randomBot _ = liftM fromJust $ liftIO $ pickRandom [Stay, North, South, East, West]
