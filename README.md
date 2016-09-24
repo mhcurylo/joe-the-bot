@@ -1,3 +1,8 @@
+Joe The Bot
+=========================
+Vindinium bot based on Vindinium Starter Haskell.
+
+
 Vindinium Starter Haskell
 =========================
 
