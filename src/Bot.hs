@@ -41,84 +41,82 @@ pickRandom xs = do
     return . Just $ xs !! idx
 
 data Scout = Scout {
-    scoutDir       :: Dir
+    scoutDir       :: [Dir]
   , scoutScore     :: Int
-  , scoutIteration :: Int
+} deriving (Show, Eq)
+
+data PosDir = PosDir {
+    posDirPos :: Pos
+  , posDirDir :: [Dir]
 } deriving (Show, Eq)
 
 scoutTheBoard :: State -> [Scout]
-scoutTheBoard state = scoutSafeThePositions state posdir scout 0 
+scoutTheBoard state = scoutSafeThePositions state posdir scout
   where
     board = gameBoard $ stateGame state
     scout = scoutsInit board 
-    posdir = scoutNewDirs [] board scout (heroPos $ stateHero state)
+    posdir = scoutNewDirs [(PosDir (heroPos $ stateHero state) [])] board scout 
 
-scoutSafeThePositions :: State -> [(Pos, Dir)] -> [Scout] -> Int -> [Scout]
-scoutSafeThePositions  s pd scs i
+scoutSafeThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
+scoutSafeThePositions  s pd scs 
   | length pd == 0 = scs
-  | i == 1000 = scs
-  | otherwise = scoutThePositions s pd scs i
+  | otherwise = scoutThePositions s pd scs 
 
-scoutThePositions :: State -> [(Pos, Dir)] -> [Scout] -> Int -> [Scout]
-scoutThePositions  s pd scs i
-  | length pd == 0 = scs
-  | ta == Just FreeTile = scoutSafeThePositions s (scoutNewDirs pd' b scs ap)  (addWay b scs ap d i) i' 
-  | ta == Just TavernTile = scoutSafeThePositions s pd' (addTavern b scs ap d (getMyLife s) i) i'
-  | ta /= Just (HeroTile hid) && (ta == Just (HeroTile (HeroId 3)) || ta ==  Just (HeroTile (HeroId 2)) || ta == Just (HeroTile (HeroId 1)) || ta == Just (HeroTile (HeroId 0))) =  scoutSafeThePositions s pd' (addEnemy b scs ap d i) i'
-  | ta /= Just (MineTile $ Just hid) && (ta == Just (MineTile $ Just (HeroId 3)) || ta ==  Just (MineTile $ Just (HeroId 2)) || ta == Just (MineTile $ Just (HeroId 1)) || ta == Just (MineTile $ Just (HeroId 0)) || ta == Just (MineTile Nothing)) =  scoutSafeThePositions s pd' (addMine b scs ap d i) i'
-  | otherwise = scoutThePositions s pd' scs i'
+scoutThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
+scoutThePositions  s pd scs
+  | ta == Just FreeTile = scoutSafeThePositions s (scoutNewDirs pd b scs)  (addWay b scs hpd) 
+  | ta == Just TavernTile = scoutSafeThePositions s pd' (addTavern b scs hpd (getMyLife s))
+  | ta /= Just (HeroTile hid) && (ta == Just (HeroTile (HeroId 3)) || ta ==  Just (HeroTile (HeroId 2)) || ta == Just (HeroTile (HeroId 1)) || ta == Just (HeroTile (HeroId 0))) =  scoutSafeThePositions s pd' (addEnemy b scs hpd)
+  | ta /= Just (MineTile $ Just hid) && (ta == Just (MineTile $ Just (HeroId 3)) || ta ==  Just (MineTile $ Just (HeroId 2)) || ta == Just (MineTile $ Just (HeroId 1)) || ta == Just (MineTile $ Just (HeroId 0)) || ta == Just (MineTile Nothing)) =  scoutSafeThePositions s pd' (addMine b scs hpd)
+  | otherwise = scoutThePositions s pd' scs
   where
     b = gameBoard $ stateGame s
-    hid = heroId $stateHero s
+    hid = heroId $ stateHero s
     hpd = head pd
-    p = fst hpd
-    d = snd hpd
-    ap = dirToPosition b p d
-    ta = tileAt b ap
-    isAt = isTileAtPos b ap
     pd' = tail pd
-    i' = i + 1
-
+    p = posDirPos hpd
+    ta = tileAt b p
 
 getMyLife :: State -> Int
 getMyLife s = fromIntegral $ heroLife $ stateHero s
 
-scoutNewDirs :: [(Pos, Dir)] -> Board -> [Scout] -> Pos -> [(Pos, Dir)]
-scoutNewDirs pd b sc p = pd ++ (filter (scoutWasThere b sc) $  map (\x -> (p, x)) $ connections b p)
-
-scoutWasThere :: Board -> [Scout] -> (Pos, Dir) -> Bool
-scoutWasThere b sc pd@(p, d) 
-  | inBoard b pos == True = (scoutDir $ sc!!(posToIndex b pos)) == Stay
-  | otherwise = True  
+scoutNewDirs :: [PosDir] -> Board -> [Scout] -> [PosDir]
+scoutNewDirs opd b sc = pd ++ filter (scoutWasThere b sc) (map (\x -> PosDir (dirToPosition b p x) $ d ++ [x]) $ connections b p)
   where
-  pos = dirToPosition b p d
+    pd = tail opd
+    (PosDir p d) = head opd
 
-addTavern :: Board -> [Scout] -> Pos -> Dir -> Int -> Int -> [Scout]
-addTavern b s p d l i = updateScout b s p d (100 - l)  i
+scoutWasThere :: Board -> [Scout] -> PosDir -> Bool
+scoutWasThere b sc pd@(PosDir p d) 
+  | inBoard b p == True = (scoutDir $ sc!!(posToIndex b p)) /= []
+  | otherwise = True
 
-addEnemy :: Board -> [Scout] -> Pos -> Dir -> Int -> [Scout]
-addEnemy b s p d i = updateScout b s p d (-40) i
+addTavern :: Board -> [Scout] -> PosDir -> Int -> [Scout]
+addTavern b s pd l = updateScout b s pd (100 - l)
 
-addMine :: Board -> [Scout] -> Pos -> Dir -> Int -> [Scout]
-addMine b s p d i = updateScout b s p d (100) i 
+addEnemy :: Board -> [Scout] -> PosDir -> [Scout]
+addEnemy b s pd = updateScout b s pd (-40) 
 
-addWay :: Board -> [Scout] -> Pos -> Dir -> Int -> [Scout]
-addWay b s p d i = updateScout b s p d (0) i 
+addMine :: Board -> [Scout] -> PosDir -> [Scout]
+addMine b s pd = updateScout b s pd (100)  
 
-updateScout :: Board -> [Scout] -> Pos -> Dir -> Int -> Int -> [Scout]
-updateScout b s p d sp i = a ++ f:[] ++ c
+addWay :: Board -> [Scout] -> PosDir -> [Scout]
+addWay b s pd = updateScout b s pd (0) 
+
+updateScout :: Board -> [Scout] -> PosDir -> Int -> [Scout]
+updateScout b s pd@(PosDir p d) i = a ++ f:[] ++ c
       where
         (a, e:c) = splitAt (posToIndex b p) s
-        f = Scout d (scoutScore e + sp) i  
+        f = Scout d (i + scoutScore e)  
 
 scoutTheBest :: [Scout] -> Dir
-scoutTheBest sc = scoutDir $ maximumBy orderScout sc
+scoutTheBest sc = head $ scoutDir $ maximumBy orderScout sc
 
 orderScout :: Scout -> Scout -> Ordering
 orderScout s1 s2 = compare (scoutScore s1) (scoutScore s2)
 
 scoutsInit :: Board -> [Scout]
-scoutsInit b = map (\x -> (Scout Stay 0 0)) $ [0 .. bs*bs]
+scoutsInit b = map (\x -> (Scout [] 0)) $ [0 .. bs*bs]
   where 
     bs = boardSize b
 
