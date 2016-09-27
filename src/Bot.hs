@@ -131,10 +131,6 @@ scoutsInit b = map (\x -> (Scout [] 0 False)) $ [0 .. bs*bs]
   where 
     bs = boardSize b
 
-
-nearestGold :: State -> [Dir]
-nearestGold state = connections (gameBoard $ stateGame state) (heroPos $ stateHero state)
-
 connections :: Board -> Pos -> [Dir]  
 connections b p = filter (canTraverseTo b p) [North, South, West, East]
 
