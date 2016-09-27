@@ -16,10 +16,19 @@ bot = myBot
 
 myBot :: Bot
 myBot state = do
-  return $ scoutTheBest $ scoutTheBoard state
+  liftIO $ putStrLn $ show m
+  liftIO $ putStrLn $ show n
+  return z
+  where
+  b = scoutTheBoard state
+  n = filter (\x -> scoutScore x > 10) b
+  m = scoutTheBest b
+  z = takeSafeDir m
 
-randomBot :: Bot
-randomBot _ = liftM fromJust $ liftIO $ pickRandom [Stay, North, South, East, West]
+takeSafeDir :: [Dir] -> Dir
+takeSafeDir x
+  | length x == 0 = Stay
+  | otherwise = head x 
 
 inBoard :: Board -> Pos -> Bool
 inBoard b (Pos x y) =
@@ -34,15 +43,10 @@ tileAt b p@(Pos x y) =
   where
     idx = posToIndex b p
 
-pickRandom :: [a] -> IO (Maybe a)
-pickRandom [] = return Nothing
-pickRandom xs = do
-    idx <- getStdRandom (randomR (0, length xs - 1))
-    return . Just $ xs !! idx
-
 data Scout = Scout {
     scoutDir       :: [Dir]
   , scoutScore     :: Int
+  , scouted        :: Bool
 } deriving (Show, Eq)
 
 data PosDir = PosDir {
@@ -64,59 +68,66 @@ scoutSafeThePositions  s pd scs
 
 scoutThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
 scoutThePositions  s pd scs
+  | i > 15 || (scoutWasThere b scs hpd) = scoutSafeThePositions s pd' scs
   | ta == Just FreeTile = scoutSafeThePositions s (scoutNewDirs pd b scs)  (addWay b scs hpd) 
   | ta == Just TavernTile = scoutSafeThePositions s pd' (addTavern b scs hpd (getMyLife s))
   | ta /= Just (HeroTile hid) && (ta == Just (HeroTile (HeroId 3)) || ta ==  Just (HeroTile (HeroId 2)) || ta == Just (HeroTile (HeroId 1)) || ta == Just (HeroTile (HeroId 0))) =  scoutSafeThePositions s pd' (addEnemy b scs hpd)
   | ta /= Just (MineTile $ Just hid) && (ta == Just (MineTile $ Just (HeroId 3)) || ta ==  Just (MineTile $ Just (HeroId 2)) || ta == Just (MineTile $ Just (HeroId 1)) || ta == Just (MineTile $ Just (HeroId 0)) || ta == Just (MineTile Nothing)) =  scoutSafeThePositions s pd' (addMine b scs hpd)
-  | otherwise = scoutThePositions s pd' scs
+  | otherwise = scoutSafeThePositions s pd' scs
   where
     b = gameBoard $ stateGame s
     hid = heroId $ stateHero s
     hpd = head pd
     pd' = tail pd
-    p = posDirPos hpd
+    (PosDir p d) = hpd
+    i = length d
     ta = tileAt b p
 
 getMyLife :: State -> Int
 getMyLife s = fromIntegral $ heroLife $ stateHero s
 
 scoutNewDirs :: [PosDir] -> Board -> [Scout] -> [PosDir]
-scoutNewDirs opd b sc = pd ++ filter (scoutWasThere b sc) (map (\x -> PosDir (dirToPosition b p x) $ d ++ [x]) $ connections b p)
+scoutNewDirs opd b sc = pd ++ filter (not . scoutWasThere b sc) (map (\x -> PosDir (dirToPosition b p x) $ d ++ [x]) $ connections b p)
   where
     pd = tail opd
     (PosDir p d) = head opd
 
 scoutWasThere :: Board -> [Scout] -> PosDir -> Bool
 scoutWasThere b sc pd@(PosDir p d) 
-  | inBoard b p == True = (scoutDir $ sc!!(posToIndex b p)) /= []
+  | inBoard b p == True = (scouted $ sc!!(posToIndex b p)) == True
   | otherwise = True
 
 addTavern :: Board -> [Scout] -> PosDir -> Int -> [Scout]
-addTavern b s pd l = updateScout b s pd (100 - l)
+addTavern b s pd l
+  | bonus == True  = update (185 - l) 
+  | bonus == False = update (135 - l)
+  where 
+  bonus = length (posDirDir pd) < 3
+  update = updateScout b s pd
 
 addEnemy :: Board -> [Scout] -> PosDir -> [Scout]
-addEnemy b s pd = updateScout b s pd (-40) 
+addEnemy b s pd = updateScout b s pd (-80) 
 
 addMine :: Board -> [Scout] -> PosDir -> [Scout]
-addMine b s pd = updateScout b s pd (100)  
+addMine b s pd = updateScout b s pd 100  
 
 addWay :: Board -> [Scout] -> PosDir -> [Scout]
-addWay b s pd = updateScout b s pd (0) 
+addWay b s pd = updateScout b s pd 0 
 
 updateScout :: Board -> [Scout] -> PosDir -> Int -> [Scout]
 updateScout b s pd@(PosDir p d) i = a ++ f:[] ++ c
       where
         (a, e:c) = splitAt (posToIndex b p) s
-        f = Scout d (i + scoutScore e)  
+        f = Scout d (i + (scoutScore e) - (length d)) True
 
-scoutTheBest :: [Scout] -> Dir
-scoutTheBest sc = head $ scoutDir $ maximumBy orderScout sc
+scoutTheBest :: [Scout] -> [Dir]
+scoutTheBest sc = scoutDir $ maximumBy orderScout sc
 
 orderScout :: Scout -> Scout -> Ordering
 orderScout s1 s2 = compare (scoutScore s1) (scoutScore s2)
 
 scoutsInit :: Board -> [Scout]
-scoutsInit b = map (\x -> (Scout [] 0)) $ [0 .. bs*bs]
+scoutsInit b = map (\x -> (Scout [] 0 False)) $ [0 .. bs*bs]
   where 
     bs = boardSize b
 
