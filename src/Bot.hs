@@ -16,14 +16,7 @@ bot = myBot
 
 myBot :: Bot
 myBot state = do
-  liftIO $ putStrLn $ show m
-  liftIO $ putStrLn $ show n
-  return z
-  where
-  b = scoutTheBoard state
-  n = filter (\x -> scoutScore x > 10) b
-  m = scoutTheBest b
-  z = takeSafeDir m
+  return $ takeSafeDir $ scoutTheBest $ scoutTheBoard state
 
 takeSafeDir :: [Dir] -> Dir
 takeSafeDir x
@@ -71,7 +64,7 @@ scoutSafeThePositions  s pd scs
 
 scoutThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
 scoutThePositions  s pd scs
-  | i > 13 || (scoutWasThere b scs hpd) = scoutSafeThePositions s pd' scs
+  | i > 25 || (scoutWasThere b scs hpd) = scoutSafeThePositions s pd' scs
   | ta == Just FreeTile = scoutSafeThePositions s (scoutNewDirs pd b scs)  (addWay b scs hpd) 
   | ta == Just TavernTile = scoutSafeThePositions s pd' (addTavern b scs hpd (getMyLife s))
   | ta /= Just (HeroTile hid) && (ta == Just (HeroTile (HeroId 3)) || ta ==  Just (HeroTile (HeroId 2)) || ta == Just (HeroTile (HeroId 1)) || ta == Just (HeroTile (HeroId 0))) =  scoutSafeThePositions s pd' (addEnemy b scs hpd)
@@ -90,20 +83,27 @@ getMyLife :: State -> Int
 getMyLife s = fromIntegral $ heroLife $ stateHero s
 
 resonate :: [Scout] -> Int -> [Scout]
-resonate scs b = fst $ foldl resonateValue (scs, 0, b) scs
+resonate scs b = fst $ foldl (\x y -> resonateValue x y) (scs, (0, b)) scs
 
-resonateValue :: ([Scout], Int, Int) -> Scout -> ([Scout], Int, Int)
-resonateValue si@(scs, i, b) s
-  | v == Neutral = (scs, i + 1, b)
-  | v == Bad = (resonateBadness si b, i + 1, b)
-  | v == Good = (resonateGoodness si b, i + 1, b)
+resonateValue :: ([Scout], (Int, Int)) -> Scout -> ([Scout], (Int, Int))
+resonateValue si@(scs, (i, b)) s
+  | v == Neutral = (scs, (i + 1, b))
+  | v == Bad = (resonateBadness si, (i + 1, b))
+  | v == Good = (resonateGoodness si, (i + 1, b))
   where
     v = scoutValue s
 
-resonateBadness :: ([Scout], Int, Int) -> Int -> [Scout]
-resonateBadness si@(scs, i, b) = scs 
-resonateGoodness :: ([Scout], Int, Int) -> Int -> [Scout]
-resonateGoodness si@(scs, i, b) = scs
+resonateBadness :: ([Scout], (Int, Int)) -> [Scout]
+resonateBadness si@(scs, (i, b)) = foldl (\x y -> moreScout (-10) y x) scs $ doubleKarma b i
+resonateGoodness :: ([Scout], (Int, Int)) -> [Scout]
+resonateGoodness si@(scs, (i, b)) = foldl (\x y -> moreScout 10 y x) scs $ doubleKarma b i 
+
+moreScout :: Int -> Int -> [Scout] -> [Scout]
+moreScout s i scs = a ++ f:c
+      where
+        (a, e:c) = splitAt i scs
+        (Scout g h j y) = e
+        f = Scout g (h + s) j y
 
 doubleKarma :: Int -> Int -> [Int]
 doubleKarma b i = concatMap wk $ wk i
@@ -111,26 +111,26 @@ doubleKarma b i = concatMap wk $ wk i
     wk = withinKarma b
 
 withinKarma :: Int -> Int -> [Int]
-withinKarma b i = filter (\x -> x == -1) [idxn b i, idxs b i, idxw b i, idxe b i]
+withinKarma b i = filter (\x -> x /= -1) [idxn b i, idxs b i, idxw b i, idxe b i]
 
 idxn :: Int -> Int -> Int
 idxn b i 
-  | i > b = i - b
+  | b < i = i - b
   | otherwise = (-1)
 
 idxs :: Int -> Int -> Int
 idxs b i 
-  | i < b*(b - 1) = i + b
+  | i <= b*(b - 1) = i + b
   | otherwise = (-1)
 
 idxw :: Int -> Int -> Int
 idxw b i 
-  | 0 < i `mod` b  = i - 1
+  | i `mod` b /= 1 = i - 1
   | otherwise = (-1)
 
 idxe :: Int -> Int -> Int
 idxe b i 
-  | i `mod` b < b - 1 = i + 1
+  | i `mod` b /= 0 = i + 1
   | otherwise = (-1)
 
 scoutNewDirs :: [PosDir] -> Board -> [Scout] -> [PosDir]
@@ -146,14 +146,14 @@ scoutWasThere b sc pd@(PosDir p d)
 
 addTavern :: Board -> [Scout] -> PosDir -> Int -> [Scout]
 addTavern b s pd l
-  | bonus == True  = update (185 - l) 
-  | bonus == False = update (135 - l)
+  | bonus == True  = update (250 - l*2) 
+  | bonus == False = update (200 - l*2)
   where 
-  bonus = length (posDirDir pd) < 3
+  bonus = length (posDirDir pd) < 3 && l < 90
   update = updateScout b s pd Good
 
 addEnemy :: Board -> [Scout] -> PosDir -> [Scout]
-addEnemy b s pd = updateScout b s pd Bad (-80) 
+addEnemy b s pd = updateScout b s pd Bad (-60) 
 
 addMine :: Board -> [Scout] -> PosDir -> [Scout]
 addMine b s pd = updateScout b s pd Good 100  
@@ -165,7 +165,7 @@ updateScout :: Board -> [Scout] -> PosDir -> Value -> Int -> [Scout]
 updateScout b s pd@(PosDir p d) v i = a ++ f:[] ++ c
       where
         (a, e:c) = splitAt (posToIndex b p) s
-        f = Scout d (i + (scoutScore e) - (length d)) v True
+        f = Scout d (i + (scoutScore e) - (length d) * 2) v True
 
 scoutTheBest :: [Scout] -> [Dir]
 scoutTheBest sc = scoutDir $ maximumBy orderScout sc
