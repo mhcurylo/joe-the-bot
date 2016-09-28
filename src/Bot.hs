@@ -43,9 +43,12 @@ tileAt b p@(Pos x y) =
   where
     idx = posToIndex b p
 
+data Value = Good | Neutral | Bad deriving (Show, Eq)
+
 data Scout = Scout {
     scoutDir       :: [Dir]
   , scoutScore     :: Int
+  , scoutValue     :: Value
   , scouted        :: Bool
 } deriving (Show, Eq)
 
@@ -63,12 +66,12 @@ scoutTheBoard state = scoutSafeThePositions state posdir scout
 
 scoutSafeThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
 scoutSafeThePositions  s pd scs 
-  | length pd == 0 = scs
+  | length pd == 0 = resonate scs $ boardSize $ gameBoard $ stateGame s
   | otherwise = scoutThePositions s pd scs 
 
 scoutThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
 scoutThePositions  s pd scs
-  | i > 15 || (scoutWasThere b scs hpd) = scoutSafeThePositions s pd' scs
+  | i > 13 || (scoutWasThere b scs hpd) = scoutSafeThePositions s pd' scs
   | ta == Just FreeTile = scoutSafeThePositions s (scoutNewDirs pd b scs)  (addWay b scs hpd) 
   | ta == Just TavernTile = scoutSafeThePositions s pd' (addTavern b scs hpd (getMyLife s))
   | ta /= Just (HeroTile hid) && (ta == Just (HeroTile (HeroId 3)) || ta ==  Just (HeroTile (HeroId 2)) || ta == Just (HeroTile (HeroId 1)) || ta == Just (HeroTile (HeroId 0))) =  scoutSafeThePositions s pd' (addEnemy b scs hpd)
@@ -85,6 +88,50 @@ scoutThePositions  s pd scs
 
 getMyLife :: State -> Int
 getMyLife s = fromIntegral $ heroLife $ stateHero s
+
+resonate :: [Scout] -> Int -> [Scout]
+resonate scs b = fst $ foldl resonateValue (scs, 0, b) scs
+
+resonateValue :: ([Scout], Int, Int) -> Scout -> ([Scout], Int, Int)
+resonateValue si@(scs, i, b) s
+  | v == Neutral = (scs, i + 1, b)
+  | v == Bad = (resonateBadness si b, i + 1, b)
+  | v == Good = (resonateGoodness si b, i + 1, b)
+  where
+    v = scoutValue s
+
+resonateBadness :: ([Scout], Int, Int) -> Int -> [Scout]
+resonateBadness si@(scs, i, b) = scs 
+resonateGoodness :: ([Scout], Int, Int) -> Int -> [Scout]
+resonateGoodness si@(scs, i, b) = scs
+
+doubleKarma :: Int -> Int -> [Int]
+doubleKarma b i = concatMap wk $ wk i
+  where
+    wk = withinKarma b
+
+withinKarma :: Int -> Int -> [Int]
+withinKarma b i = filter (\x -> x == -1) [idxn b i, idxs b i, idxw b i, idxe b i]
+
+idxn :: Int -> Int -> Int
+idxn b i 
+  | i > b = i - b
+  | otherwise = (-1)
+
+idxs :: Int -> Int -> Int
+idxs b i 
+  | i < b*(b - 1) = i + b
+  | otherwise = (-1)
+
+idxw :: Int -> Int -> Int
+idxw b i 
+  | 0 < i `mod` b  = i - 1
+  | otherwise = (-1)
+
+idxe :: Int -> Int -> Int
+idxe b i 
+  | i `mod` b < b - 1 = i + 1
+  | otherwise = (-1)
 
 scoutNewDirs :: [PosDir] -> Board -> [Scout] -> [PosDir]
 scoutNewDirs opd b sc = pd ++ filter (not . scoutWasThere b sc) (map (\x -> PosDir (dirToPosition b p x) $ d ++ [x]) $ connections b p)
@@ -103,22 +150,22 @@ addTavern b s pd l
   | bonus == False = update (135 - l)
   where 
   bonus = length (posDirDir pd) < 3
-  update = updateScout b s pd
+  update = updateScout b s pd Good
 
 addEnemy :: Board -> [Scout] -> PosDir -> [Scout]
-addEnemy b s pd = updateScout b s pd (-80) 
+addEnemy b s pd = updateScout b s pd Bad (-80) 
 
 addMine :: Board -> [Scout] -> PosDir -> [Scout]
-addMine b s pd = updateScout b s pd 100  
+addMine b s pd = updateScout b s pd Good 100  
 
 addWay :: Board -> [Scout] -> PosDir -> [Scout]
-addWay b s pd = updateScout b s pd 0 
+addWay b s pd = updateScout b s pd Neutral 0 
 
-updateScout :: Board -> [Scout] -> PosDir -> Int -> [Scout]
-updateScout b s pd@(PosDir p d) i = a ++ f:[] ++ c
+updateScout :: Board -> [Scout] -> PosDir -> Value -> Int -> [Scout]
+updateScout b s pd@(PosDir p d) v i = a ++ f:[] ++ c
       where
         (a, e:c) = splitAt (posToIndex b p) s
-        f = Scout d (i + (scoutScore e) - (length d)) True
+        f = Scout d (i + (scoutScore e) - (length d)) v True
 
 scoutTheBest :: [Scout] -> [Dir]
 scoutTheBest sc = scoutDir $ maximumBy orderScout sc
@@ -127,7 +174,7 @@ orderScout :: Scout -> Scout -> Ordering
 orderScout s1 s2 = compare (scoutScore s1) (scoutScore s2)
 
 scoutsInit :: Board -> [Scout]
-scoutsInit b = map (\x -> (Scout [] 0 False)) $ [0 .. bs*bs]
+scoutsInit b = map (\x -> (Scout [] 0 Neutral False)) $ [0 .. bs*bs]
   where 
     bs = boardSize b
 
