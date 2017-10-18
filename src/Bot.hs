@@ -19,9 +19,9 @@ myBot state = do
   return $ takeSafeDir $ scoutTheBest $ scoutTheBoard state
 
 takeSafeDir :: [Dir] -> Dir
-takeSafeDir x
-  | length x == 0 = Stay
-  | otherwise = head x 
+takeSafeDir xs
+  | null xs == 0 = Stay
+  | otherwise = head xs
 
 inBoard :: Board -> Pos -> Bool
 inBoard b (Pos x y) =
@@ -59,7 +59,7 @@ scoutTheBoard state = scoutSafeThePositions state posdir scout
 
 scoutSafeThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
 scoutSafeThePositions  s pd scs 
-  | length pd == 0 = resonate scs $ boardSize $ gameBoard $ stateGame s
+  | null pd = resonate scs $ boardSize $ gameBoard $ stateGame s
   | otherwise = scoutThePositions s pd scs 
 
 scoutThePositions :: State -> [PosDir] -> [Scout] -> [Scout]
